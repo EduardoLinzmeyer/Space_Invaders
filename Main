@@ -1,0 +1,274 @@
+import pygame, sys
+from player import Player
+from alien import Alien
+from random import choice
+from laser import Laser
+
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (100, 100, 100)
+BLUE = (0, 100, 255)
+RED = (255, 0, 0)
+
+class Menu:
+    def __init__(self, screen_width, screen_height):
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.buttons = []
+        self.selected_index = 0
+        self.create_buttons()
+
+    def create_buttons(self):
+        button_width = 200
+        button_height = 50
+        spacing = 20
+        total_height = 3 * button_height + 2 * spacing
+        start_y = (self.screen_height - total_height) // 2
+
+        self.buttons = [
+            Button(self.screen_width // 2 - button_width // 2, start_y, button_width, button_height,
+                   "Novo Jogo", BLUE, RED),
+            Button(self.screen_width // 2 - button_width // 2, start_y + button_height + spacing,
+                   button_width, button_height, "Créditos", BLUE, RED),
+            Button(self.screen_width // 2 - button_width // 2, start_y + 2 * (button_height + spacing),
+                   button_width, button_height, "Sair", BLUE, RED)
+        ]
+        self.buttons[self.selected_index].is_hovered = True
+
+    def draw(self, surface):
+        # Fundo semi-transparente
+        s = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 200))  # Preto com transparência
+        surface.blit(s, (0, 0))
+
+        # Título
+        title_font = pygame.font.Font(None, 72)
+        title = title_font.render("SPACE INVADERS DA SHOPEE", True, (0, 255, 0))
+        title_rect = title.get_rect(center=(self.screen_width // 2, self.screen_height // 4))
+        surface.blit(title, title_rect)
+
+        # Botões
+        for button in self.buttons:
+            button.draw(surface)
+
+    def handle_event(self, event):
+        mouse_pos = pygame.mouse.get_pos()
+
+        if event.type == pygame.MOUSEMOTION:
+            for i, button in enumerate(self.buttons):
+                if button.check_hover(mouse_pos):
+                    self.selected_index = i
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            for i, button in enumerate(self.buttons):
+                if button.is_clicked(mouse_pos, event):
+                    return i + 1  # Retorna 1, 2 ou 3 conforme o botão
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_DOWN:
+                self.selected_index = (self.selected_index + 1) % len(self.buttons)
+            elif event.key == pygame.K_UP:
+                self.selected_index = (self.selected_index - 1) % len(self.buttons)
+            elif event.key == pygame.K_RETURN:
+                return self.selected_index + 1  # Retorna 1, 2 ou 3 conforme o botão
+
+        # Atualiza estado de hover dos botões
+        for i, button in enumerate(self.buttons):
+            button.is_hovered = (i == self.selected_index)
+
+        return 0
+
+class Button:
+
+    def __init__(self, x, y, width, height, text, color, hover_color):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.color = color
+        self.hover_color = hover_color
+        self.is_hovered = False
+        self.font = pygame.font.Font(None, 36)
+
+    def draw(self, surface):
+        color = self.hover_color if self.is_hovered else self.color
+        pygame.draw.rect(surface, color, self.rect, border_radius=10)
+        pygame.draw.rect(surface, WHITE, self.rect, 2, border_radius=10)
+
+        text_surf = self.font.render(self.text, True, WHITE)
+        text_rect = text_surf.get_rect(center=self.rect.center)
+        surface.blit(text_surf, text_rect)
+
+    def check_hover(self, pos):
+        self.is_hovered = self.rect.collidepoint(pos)
+        return self.is_hovered
+
+    def is_clicked(self, pos, event):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            return self.rect.collidepoint(pos)
+        return False
+
+
+class Game:
+    def __init__(self):
+        # Player setup
+        player_sprite = Player((screen_width / 2, screen_height), screen_width, 5)
+        self.player = pygame.sprite.GroupSingle(player_sprite)
+
+        # Health and Score setup
+        self.lives = 3
+        self.live_surf = pygame.image.load('D:/Arquivos uteis/Pycharm/Scripts/Game_Test/Space Invaders/graphics/player.png').convert_alpha()
+        self.live_x_start_pos = screen_width - (self.live_surf.get_size()[0] * 2 + 1)
+
+        # Alien setup
+        self.aliens = pygame.sprite.Group()
+        self.aliens_lasers = pygame.sprite.Group()
+        self.alien_setup(rows=4, cols=7)
+        self.alien_direction = 1
+        self.game_active = False
+        self.show_credits = False
+
+    def alien_setup(self, rows, cols, x_distance=105, y_distance=80, x_offset=90, y_offset=60):
+        for row_index, row in enumerate(range(rows)):
+            for col_index, col in enumerate(range(cols)):
+                x = col_index * x_distance + x_offset
+                y = row_index * y_distance + y_offset
+                alien_sprite = Alien('red', x, y)
+                self.aliens.add(alien_sprite)
+
+    def alien_position_checker(self):
+        all_aliens = self.aliens.sprites()
+        for alien in all_aliens:
+            if alien.rect.right >= screen_width:
+                self.alien_direction = -1
+            elif alien.rect.left <= 0:
+                self.alien_direction = 1
+
+    def alien_shoot(self):
+        if self.aliens.sprites():
+            random_alien = choice(self.aliens.sprites())
+            laser_sprite = Laser(random_alien.rect.center, 6, screen_height)
+            self.aliens_lasers.add(laser_sprite)
+
+    def collision_checks(self):
+        # Lasers do Player
+        if self.player.sprite.lasers:
+            for laser in self.player.sprite.lasers:
+                # Colisão com os aliens
+                if pygame.sprite.spritecollide(laser, self.aliens, True):
+                    laser.kill()
+
+        # Laser dos Aliens
+        if self.aliens_lasers:
+            for laser in self.aliens_lasers:
+                if pygame.sprite.spritecollide(laser, self.player, False):
+                    laser.kill()
+                    self.lives -= 1
+                    if self.lives <= 0:
+                        self.game_active = False  # Retorna ao menu em vez de fechar o jogo
+                        self.lives = 3  # Reseta as vidas para o próximo jogo
+                        self.aliens.empty()  # Limpa os aliens existentes
+                        self.aliens_lasers.empty()  # Limpa os lasers dos aliens
+                        self.alien_setup(rows=4, cols=7)    # Recria os Aliens
+
+    def display_lives(self):
+        for live in range (self.lives - 1):
+            x = self.live_x_start_pos + (live * self.live_surf.get_size()[0] + 1)
+            screen.blit(self.live_surf,(x,-50))
+
+    def run(self):
+        self.player.update()
+        self.aliens.update(self.alien_direction)
+        self.alien_position_checker()
+        self.aliens_lasers.update()
+        self.collision_checks()
+        self.display_lives()
+
+        # Lasers
+        self.player.sprite.lasers.draw(screen)
+        self.player.draw(screen)
+        self.aliens.draw(screen)
+        self.aliens_lasers.draw(screen)
+
+    def draw_credits(self):
+        # Fundo semi-transparente
+        s = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 200))
+        screen.blit(s, (0, 0))
+
+        # Texto dos créditos
+        font_large = pygame.font.Font(None, 48)
+        font_small = pygame.font.Font(None, 36)
+
+        title = font_large.render("Créditos", True, WHITE)
+        title_rect = title.get_rect(center=(screen_width // 2, screen_height // 4))
+        screen.blit(title, title_rect)
+
+        lines = [
+            "Desenvolvido por:",
+            "Eduardo Linzmeyer",
+            "",
+            "Tecnologias usadas:",
+            "Computador",
+            "Internet",
+            "",
+            "Pressione ESC para voltar"
+        ]
+
+        for i, line in enumerate(lines):
+            text = font_small.render(line, True, WHITE)
+            text_rect = text.get_rect(center=(screen_width // 2, screen_height // 3 + i * 40))
+            screen.blit(text, text_rect)
+
+
+if __name__ == '__main__':
+    pygame.init()
+    screen_width = 900
+    screen_height = 900
+    screen = pygame.display.set_mode((screen_width, screen_height))
+    pygame.display.set_caption("Space Invaders da Shopee")
+    clock = pygame.time.Clock()
+    game = Game()
+    menu = Menu(screen_width, screen_height)
+
+    # Cronometro para tiros dos aliens
+    ALIENLASER = pygame.USEREVENT + 1
+    pygame.time.set_timer(ALIENLASER, 700)
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+            if not game.game_active:
+                if game.show_credits:
+                    if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                        game.show_credits = False
+                else:
+                    result = menu.handle_event(event)
+                    if result == 1:  # Novo Jogo
+                        game = Game()  # Reinicia o jogo
+                        game.game_active = True
+                    elif result == 2:  # Créditos
+                        game.show_credits = True
+                    elif result == 3:  # Sair
+                        pygame.quit()
+                        sys.exit()
+            else:
+                if event.type == ALIENLASER:
+                    game.alien_shoot()
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    game.game_active = False
+
+        screen.fill(BLACK)
+
+        if game.game_active:
+            game.run()
+        else:
+            if game.show_credits:
+                game.draw_credits()
+            else:
+                menu.draw(screen)
+
+        pygame.display.flip()
+        clock.tick(60)
